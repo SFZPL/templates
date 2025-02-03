@@ -227,10 +227,10 @@ st.markdown(
 
 # Template options with new paths.
 template_options = {
-    "Employment letter - Arabic": r"C:\Users\Geeks\Desktop\Programming_Files\Letters\Employment Letter - ARABIC.docx",
-    "Employment letter": r"C:\Users\Geeks\Desktop\Programming_Files\Letters\Employment Letter .docx",
-    "Employment letter to embassies": r"C:\Users\Geeks\Desktop\Programming_Files\Letters\Employment Letter to Embassies.docx",
-    "Experience letter": r"C:\Users\Geeks\Desktop\Programming_Files\Letters\Experience Letter.docx"
+    "Employment letter - Arabic": "Employment Letter - ARABIC.docx",
+    "Employment letter": "Employment Letter .docx",
+    "Employment letter to embassies": "Employment Letter to Embassies.docx",
+    "Experience letter": "Experience Letter.docx"
 }
 
 def main() -> None:
