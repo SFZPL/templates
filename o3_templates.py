@@ -60,40 +60,32 @@ def get_arabic_name(employee: Dict[str, Any]) -> str:
             return name
     return employee.get("name", "").strip()
 
-def get_employee_by_phone(models: xmlrpc.client.ServerProxy, uid: int, phone_number: str) -> Optional[Dict[str, Any]]:
+def get_employee_by_id(models: xmlrpc.client.ServerProxy, uid: int, identification_no: str) -> Optional[Dict[str, Any]]:
     """
-    Searches for an employee by phone number and returns processed employee data.
+    Searches for an employee by Identification Number and returns processed employee data.
+    Assumes that the field in Odoo is 'identification_id'.
     """
     try:
-        phone_number = phone_number.strip()
+        identification_no = identification_no.strip()
         available_fields = get_employee_fields(models, uid)
-
-        # Build search domain using available phone fields.
-        if "mobile_phone" in available_fields and "work_phone" in available_fields:
-            search_domain = ['|', ('mobile_phone', '=', phone_number), ('work_phone', '=', phone_number)]
-        elif "mobile_phone" in available_fields:
-            search_domain = [('mobile_phone', '=', phone_number)]
-        elif "work_phone" in available_fields:
-            search_domain = [('work_phone', '=', phone_number)]
+        
+        if "identification_id" in available_fields:
+            search_domain = [('identification_id', '=', identification_no)]
         else:
-            st.error("Neither 'mobile_phone' nor 'work_phone' exist in Odoo.")
+            st.error("Field 'identification_id' does not exist in Odoo.")
             return None
-
-        # Define fields to read; intentionally using create_date as the joining date.
-        fields_to_read = ['id', 'name', 'job_title', 'create_date', 'x_studio_employee_arabic_name']
-        if "mobile_phone" in available_fields:
-            fields_to_read.append("mobile_phone")
-        if "work_phone" in available_fields:
-            fields_to_read.append("work_phone")
-
+        
+        # Define fields to read; we add 'identification_id' for reference.
+        fields_to_read = ['id', 'name', 'job_title', 'create_date', 'x_studio_employee_arabic_name', 'identification_id']
+        
         employee_ids = models.execute_kw(ODOO_DB, uid, ODOO_PASSWORD, 'hr.employee', 'search', [search_domain])
         if not employee_ids:
-            st.warning("No employee found with the provided phone number.")
+            st.warning("No employee found with the provided identification number.")
             return None
-
+        
         if len(employee_ids) > 1:
             st.warning("Multiple employees found; using the first match.")
-
+        
         employee_data = models.execute_kw(
             ODOO_DB, uid, ODOO_PASSWORD, 'hr.employee', 'read',
             [employee_ids], {'fields': fields_to_read}
@@ -101,9 +93,9 @@ def get_employee_by_phone(models: xmlrpc.client.ServerProxy, uid: int, phone_num
         if not employee_data:
             st.warning("Employee data retrieval failed.")
             return None
-
+        
         employee = employee_data[0]
-
+        
         try:
             contracts = models.execute_kw(
                 ODOO_DB, uid, ODOO_PASSWORD, 'hr.contract', 'search_read',
@@ -114,7 +106,7 @@ def get_employee_by_phone(models: xmlrpc.client.ServerProxy, uid: int, phone_num
             st.warning("User does not have access to hr.contract records. Default wage will be used.")
             contracts = []
         wage = contracts[0].get('wage', 0.0) if contracts else 0.0
-
+        
         join_date_raw = employee.get('create_date', '')
         join_date_str = ""
         if join_date_raw:
@@ -123,15 +115,15 @@ def get_employee_by_phone(models: xmlrpc.client.ServerProxy, uid: int, phone_num
                 join_date_str = join_date_dt.strftime("%d/%m/%Y")
             except Exception:
                 join_date_str = join_date_raw
-
+        
         arabic_name = get_arabic_name(employee)
-
+        
         return {
             'id': employee.get('id', ''),
             'name': employee.get('name', '').strip(),
             'first_name': employee.get('name', '').split()[0] if employee.get('name') else '',
             'job_title': employee.get('job_title', '').strip(),
-            'phone': employee.get('mobile_phone', '').strip() or employee.get('work_phone', '').strip(),
+            'identification': employee.get('identification_id', '').strip(),
             'wage': wage,
             'joining_date': join_date_str,
             'arabic_name': arabic_name
@@ -159,15 +151,12 @@ def fill_template(template_path: str, employee_data: Dict[str, Any], is_arabic: 
     if not os.path.exists(template_path):
         st.error(f"Template file not found: {template_path}")
         return None
-
     try:
         doc = Document(template_path)
     except Exception as e:
         st.error(f"Error loading document: {e}")
         return None
-
     current_date = datetime.date.today().strftime("%d/%m/%Y")
-
     placeholders = {
         "(Current Date)": current_date,
         "(First and Last Name)": employee_data['name'],
@@ -183,18 +172,15 @@ def fill_template(template_path: str, employee_data: Dict[str, Any], is_arabic: 
         "(تاريخ البداية)": employee_data.get('start_date', ''),
         "(تاريخ النهاية)": employee_data.get('end_date', '')
     }
-
     for para in doc.paragraphs:
         for key, value in placeholders.items():
             replace_text_in_runs(para.runs, key, value)
-
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
                 for para in cell.paragraphs:
                     for key, value in placeholders.items():
                         replace_text_in_runs(para.runs, key, value)
-                        
     for section in doc.sections:
         for para in section.header.paragraphs:
             for key, value in placeholders.items():
@@ -202,7 +188,6 @@ def fill_template(template_path: str, employee_data: Dict[str, Any], is_arabic: 
         for para in section.footer.paragraphs:
             for key, value in placeholders.items():
                 replace_text_in_runs(para.runs, key, value)
-
     output_stream = io.BytesIO()
     doc.save(output_stream)
     return output_stream.getvalue()
@@ -225,7 +210,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Template options with new paths.
+# Template options (files are expected to be in the same directory as this code).
 template_options = {
     "Employment letter - Arabic": "Employment Letter - ARABIC.docx",
     "Employment letter": "Employment Letter .docx",
@@ -236,12 +221,12 @@ template_options = {
 def main() -> None:
     st.title("Employment Letter Generator 🚀")
     st.markdown("Please fill in the details below to generate the employment letter. ✨")
-
+    
     with st.form("letter_form", clear_on_submit=True):
-        phone_number = st.text_input("Employee Mobile Number 📱")
+        identification_no = st.text_input("Employee Identification Number 🆔")
         selected_template = st.selectbox("Select Template", list(template_options.keys()))
         template_path = template_options[selected_template]
-
+        
         # Show travel details only for embassy letters.
         if selected_template == "Employment letter to embassies":
             country = st.text_input("Country Name 🌍")
@@ -256,7 +241,7 @@ def main() -> None:
             if not uid:
                 return
 
-            employee_data = get_employee_by_phone(models, uid, phone_number)
+            employee_data = get_employee_by_id(models, uid, identification_no)
             if not employee_data:
                 st.error("Could not retrieve employee data.")
                 return
@@ -269,24 +254,24 @@ def main() -> None:
                 employee_data['country'] = ""
                 employee_data['start_date'] = ""
                 employee_data['end_date'] = ""
-
+                
             st.markdown("### Employee Details")
             st.write(f"**Name:** {employee_data.get('name', '')}")
             st.write(f"**Job Title:** {employee_data.get('job_title', '')}")
             st.write(f"**Joining Date:** {employee_data.get('joining_date', '')}")
             st.write(f"**Wage:** {employee_data.get('wage', '')}")
-
+            
             safe_name = employee_data['name'].replace(' ', '_')
             filename = f"Employment_Letter_{safe_name}.docx"
             doc_bytes = fill_template(template_path, employee_data, is_arabic=(selected_template == "Employment letter - Arabic"))
-
+            
             if not doc_bytes:
                 st.error("Failed to generate the document.")
             else:
                 st.session_state.letter_bytes = doc_bytes
                 st.session_state.letter_filename = filename
                 st.success("Employment Letter Generated Successfully! 🎉")
-
+    
     if st.session_state.get("letter_bytes"):
         st.download_button(
             label="Download Employment Letter 📄",
